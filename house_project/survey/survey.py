@@ -3,6 +3,7 @@ from database import houses_col, db
 from bson.objectid import ObjectId
 from datetime import datetime
 from collections import Counter
+import json
 import os
 from dotenv import load_dotenv 
 from langchain_openai import ChatOpenAI
@@ -251,6 +252,106 @@ def apply_detail_filters(query, selected_survey):
 # 라우트 핸들러
 # ------------------------------------------------------------------
 
+CHAT_SYSTEM_PROMPT = """당신은 서울 주거 매물 추천의 AI 큐레이터입니다.
+사용자가 이미 Phase 1에서 기본 정보를 입력했습니다. 이 데이터를 바탕으로 대화를 진행하세요.
+
+[카테고리 가중치]
+traffic| 교통, convenience| 편의, green| 녹지, play| 놀이, health| 건강, living| 생활, safety| 안전
+
+[페르소나별 기본 가중치]
+대학생/자취생: traffic(20), convenience(20), play(18), safety(15), living(12), green(8), health(7)
+직장인: traffic(25), convenience(20), living(18), safety(14), green(8), health(8), play(7)
+재택/프리랜서: living(25), convenience(18), green(16), safety(14), health(12), traffic(8), play(7)
+신혼부부: safety(20), living(22), convenience(20), traffic(16), green(10), health(8), play(4)
+육아가정: safety(28), convenience(20), living(18), green(14), traffic(12), health(6), play(2)
+
+[가중치 조정 트리거]
+"집에서 주로 잠만 잠" → traffic+3, convenience+2, living-2
+"집에서 업무/취미/휴식" → living+3, green+2, traffic-2
+"대중교통/도보" → traffic+3
+"자차/운전/주차" → traffic-3, emphParking:true
+"신축 중시" → safety+2, living+2
+"1인 가구" → convenience+2, safety+1
+"2인 이상" → living+2, safety+2, green+1
+"자녀 있음" → safety+4, green+2, play-2
+만약 기본 가중치에서 완전히 벗어나는 대답이 있다면 가중치를 대폭 조정해도 좋습니다.(예: 대학생이지만 밖에 있는 걸 싫어해서 집에서만 논다고 하면 traffic과 play를 대폭 낮추고 living과 safety를 대폭 높이는 식)
+
+[위젯 표시 규칙]
+show_map_widget:true → 학생·직장인에게 학교/직장 근처 여부 확인 시 (한 번만)
+show_budget_widget:true → 예산 이야기가 나오거나 적절한 시점 (한 번만)
+show_detail_widget:true → 방 구조·연식·주차 등 상세 조건이 필요한 시점 (한 번만)
+emphParking:true → 자차 언급 시 주차 조건 중요도 강조 플래그
+
+[조건부 로직 - Phase1 데이터 기반으로 자동 판단]
+학생 + 2인 이상 가구 → 룸메이트/형제 유추. show_detail_widget:true, 방 개수·균등 구조 질문
+직장인 + 자녀 있음  → 학군/치안 유추. safety 가중치 +4, show_detail_widget:true
+재택근무 + 2인 이상  → 업무공간 분리 필요. living+3, show_detail_widget:true
+자차 언급 시         → traffic-3, emphParking:true
+
+[대화 규칙]
+1. Phase1 데이터를 인식·요약하며 친근하게 시작 (같은 질문 반복 금지)
+2. 한 답변에서 여러 변수를 동시에 추론
+3. 너짓: 서울 부동산 데이터 기반 짧은 인사이트 곁들임
+4. 최대 7턴, 충분하면 done 응답
+5. 한 번에 질문 하나만
+6. 첫 번째 질문은 간단한 자기소개 및 인사와 위젯이 필요 없는 '라이프스타일 취향' 질문으로 던지세요.
+
+[응답 형식 - 대화 중]
+{"type":"question","message":"질문","nudge":"인사이트 or null","quick_replies":["A","B","C"],"show_map_widget":false,"show_budget_widget":false,"show_detail_widget":false,"emphParking":false}
+
+[응답 형식 - 완료]
+{"type":"done","message":"완료 메시지","weights":{"traffic":숫자,"convenience":숫자,"green":숫자,"play":숫자,"health":숫자,"living":숫자,"safety":숫자},"persona":"페르소나","chips":["✅ 직장인","✅ 역세권 중시"]}
+
+weights 합산=100 필수. JSON 외 텍스트 출력 금지."""
+
+
+@survey_bp.route('/survey/chat', methods=['POST'])
+def survey_chat():
+    """AI 채팅 설문 엔드포인트 — GPT(OpenAI) 버전"""
+    if 'user_id' not in session:
+        return jsonify({"error": "로그인 필요"}), 401
+
+    data = request.get_json()
+    messages = data.get('messages', [])      # [{role, content}, ...]
+    phase1   = data.get('phase1', {})        # Phase 1 퀵설문 결과
+
+    # 첫 호출 시 Phase1 컨텍스트를 메시지로 주입
+    if not messages:
+        p = phase1
+        messages = [{
+            "role": "user",
+            "content": (
+                f"설문 시작. 사용자 기본정보: "
+                f"연령={p.get('age','미입력')}, "
+                f"직업={p.get('job','미입력')}, "
+                f"결혼={p.get('married','미입력')}, "
+                f"자녀={p.get('children','미입력')}, "
+                f"가구={p.get('household','미입력')}"
+            )
+        }]
+
+    try:
+        # 1. 메시지 형식을 LangChain에 맞게 변환 (role이 system인 것부터 합치기)
+        full_messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + messages
+        
+        # 2. GPT 호출 (상단에 정의된 llm 객체 사용)
+        response = llm.invoke(full_messages)
+        raw = response.content
+        
+        # 3. JSON 파싱 검증 (마크다운 태그 제거)
+        clean_json = raw.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(clean_json)
+        
+        return jsonify({"status": "success", "data": parsed, "raw": raw})
+
+    except json.JSONDecodeError:
+        print(f"❌ JSON 파싱 실패. 응답 내용: {raw}") # 로그 확인용
+        return jsonify({"status": "error", "message": "AI 응답 파싱 실패", "raw": raw}), 500
+    except Exception as e:
+        print(f"❌ GPT 호출 중 오류 발생: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @survey_bp.route('/survey')
 def survey_page():
     if 'user_id' not in session:
@@ -303,6 +404,7 @@ def save_survey():
         "special_room": data.get('special_room', ""),
         "parking": data.get('parking', ""),
         "category_log": data.get('category_log', []),
+        "custom_weights": data.get('custom_weights'),  # 라이프스타일 기반 가중치
         "created_at": datetime.now()
     }
 
@@ -353,8 +455,7 @@ def survey_result(index):
 
     selected_survey = surveys[index]
     survey_id = selected_survey['_id']
-    
-    nw = get_user_normalized_weights(selected_survey.get('category_log', []))
+    nw = get_user_normalized_weights(selected_survey.get('category_log', []), custom_weights=selected_survey.get('custom_weights'))
     top2 = sorted(nw.items(), key=lambda x: x[1], reverse=True)[:2]
     top2_keys = [top2[0][0], top2[1][0]]
     user_type, user_type_desc = TYPE_MAP.get(frozenset(top2_keys), ("기본형", "당신에게 꼭 맞는 매물을 찾고 있어요."))
@@ -447,8 +548,7 @@ def ai_generate(survey_id):
 
     if not selected_survey:
         return jsonify({"status": "error", "message": "Survey not found"}), 404
-
-    nw = get_user_normalized_weights(selected_survey.get('category_log', []))
+    nw = get_user_normalized_weights(selected_survey.get('category_log', []), custom_weights=selected_survey.get('custom_weights'))
     top2 = sorted(nw.items(), key=lambda x: x[1], reverse=True)[:2]
     top2_keys = [top2[0][0], top2[1][0]]
 

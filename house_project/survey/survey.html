@@ -9,45 +9,793 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/survey.css') }}">
     <style>
-        #loading-screen { display: none; text-align: center; padding: 50px 20px; }
-        .q-card { display: none; }
-        .q-card.active { display: block; animation: fadeIn 0.5s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .selected { background-color: #4facfe !important; color: white !important; border-color: #4facfe !important; }
-        .conditional-area { display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 12px; }
-        .range-group { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .range-group input { flex: 1; }
-        .range-sep { font-weight: bold; color: #666; }
-        
-        .back-btn { background: #eee; color: #666; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.3s; padding: 10px; }
-        .back-btn:hover { background: #e0e0e0; }
+        /* ══════════════════════════════════════════
+           기본 리셋 & 바디
+        ══════════════════════════════════════════ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        #map-selection-area { display: none; margin-top: 20px; width: 100%; }
-        #map-container { width: 100%; height: 350px; border-radius: 15px; border: 1px solid #ddd; margin: 15px 0; position: relative; overflow: hidden; }
-        #map { width: 100%; height: 100%; }
-        .map-center-pin { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); 
-            z-index: 10; pointer-events: none; font-size: 30px; 
+        body {
+            background: #f5f7fb;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
+            min-height: 100vh;
         }
-        .address-display { background: #f0f7ff; padding: 12px; border-radius: 8px; font-weight: bold; color: #007bff; margin-bottom: 10px; border: 1px dashed #007bff; min-height: 20px; text-align: center; }
-        .search-box { display: flex; gap: 8px; margin-bottom: 10px; width: 100%; }
-        .search-box input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
 
-        .skip-btn {
-            background: none; border: none; color: #aaa; text-decoration: underline;
-            font-size: 0.9rem; cursor: pointer; margin-top: 10px; transition: color 0.3s;
+        /* ══════════════════════════════════════════
+           애니메이션
+        ══════════════════════════════════════════ */
+        @keyframes fadeUp    { from{opacity:0;transform:translateY(18px)} to{opacity:1;transform:none} }
+        @keyframes slideIn   { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:none} }
+        @keyframes bubbleIn  { from{opacity:0;transform:translateY(6px) scale(.97)} to{opacity:1;transform:scale(1)} }
+        @keyframes chipPop   { from{opacity:0;transform:scale(.8)} to{opacity:1;transform:scale(1)} }
+        @keyframes dot       { 0%,60%,100%{transform:translateY(0);opacity:.4} 30%{transform:translateY(-5px);opacity:1} }
+        @keyframes pulse     { 0%,100%{opacity:1} 50%{opacity:.3} }
+        @keyframes modalIn   { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:none} }
+        @keyframes overlayIn { from{opacity:0} to{opacity:1} }
+        @keyframes shimmer   { 0%{background-position:-200% center} 100%{background-position:200% center} }
+
+        /* ══════════════════════════════════════════
+           프로그레스 바 (상단 고정)
+        ══════════════════════════════════════════ */
+        .survey-progress {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(245,247,251,.92);
+            backdrop-filter: blur(12px);
+            padding: 10px 24px 12px;
+            border-bottom: 1px solid rgba(0,0,0,.06);
         }
-        .skip-btn:hover { color: #888; }
-        .detail-q-group { margin-bottom: 25px; text-align: left; }
+        .progress-track {
+            height: 3px;
+            background: #e8ecf2;
+            border-radius: 99px;
+            overflow: hidden;
+            max-width: 720px;
+            margin: 0 auto;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4facfe, #a29bfe);
+            border-radius: 99px;
+            transition: width .6s cubic-bezier(.34,1.2,.64,1);
+            width: 0%;
+        }
+        .progress-label {
+            text-align: center;
+            font-size: .72rem;
+            font-weight: 700;
+            color: #aab4c4;
+            margin-top: 6px;
+            letter-spacing: .04em;
+        }
+
+        /* ══════════════════════════════════════════
+           페이지 컨테이너
+        ══════════════════════════════════════════ */
+        .survey-page {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 0 24px 80px;
+        }
+
+        /* ══════════════════════════════════════════
+           Phase 전환
+        ══════════════════════════════════════════ */
+        .phase { display: none; }
+        .phase.active { display: block; animation: fadeUp .45s ease; }
+
+        /* ══════════════════════════════════════════
+           PHASE 1 — 퀵 설문
+        ══════════════════════════════════════════ */
+        .p1-hero {
+            padding: 52px 0 40px;
+            text-align: center;
+        }
+        .p1-hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(135deg, #eef6ff, #ede9ff);
+            border: 1px solid #d4e8ff;
+            border-radius: 99px;
+            padding: 6px 16px;
+            font-size: .78rem;
+            font-weight: 800;
+            color: #4facfe;
+            margin-bottom: 20px;
+            letter-spacing: .03em;
+        }
+        .p1-hero h1 {
+            font-size: clamp(1.6rem, 4vw, 2.2rem);
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.25;
+            margin-bottom: 14px;
+            letter-spacing: -.02em;
+        }
+        .p1-hero h1 em {
+            font-style: normal;
+            background: linear-gradient(135deg, #4facfe, #a29bfe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .p1-hero p {
+            font-size: .95rem;
+            color: #64748b;
+            font-weight: 500;
+            line-height: 1.7;
+        }
+
+        /* 질문 블록 */
+        .q-group {
+            padding: 32px 0;
+            border-bottom: 1px solid #edf1f7;
+            animation: slideIn .35s ease both;
+        }
+        .q-group:last-of-type { border-bottom: none; }
+        .q-group:nth-child(1)  { animation-delay: .05s; }
+        .q-group:nth-child(2)  { animation-delay: .10s; }
+        .q-group:nth-child(3)  { animation-delay: .15s; }
+        .q-group:nth-child(4)  { animation-delay: .20s; }
+        .q-group:nth-child(5)  { animation-delay: .25s; }
+
+        .q-meta {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .q-num {
+            width: 26px; height: 26px;
+            border-radius: 8px;
+            background: #f0f4ff;
+            color: #4facfe;
+            font-size: .72rem;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            letter-spacing: .02em;
+        }
+        .q-label {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #1e293b;
+            letter-spacing: -.01em;
+        }
+
+        .pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .pill {
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1.5px solid #e2e8f0;
+            background: #fff;
+            font-size: .9rem;
+            font-weight: 700;
+            color: #475569;
+            cursor: pointer;
+            transition: all .14s;
+            font-family: inherit;
+            box-shadow: 0 1px 3px rgba(0,0,0,.04);
+        }
+        .pill:hover {
+            border-color: #93c5fd;
+            color: #4facfe;
+            background: #f0f8ff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(79,172,254,.12);
+        }
+        .pill.on {
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(79,172,254,.35);
+            transform: translateY(-1px);
+        }
+
+        /* 제출 */
+        .p1-footer {
+            padding-top: 36px;
+        }
+        .p1-submit {
+            width: 100%;
+            padding: 18px;
+            border-radius: 16px;
+            border: none;
+            background: linear-gradient(135deg, #4facfe 0%, #60a5fa 50%, #a29bfe 100%);
+            background-size: 200% 100%;
+            color: #fff;
+            font-size: 1.05rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 6px 24px rgba(79,172,254,.4);
+            transition: all .2s;
+            font-family: inherit;
+            letter-spacing: -.01em;
+        }
+        .p1-submit:hover {
+            background-position: right center;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(79,172,254,.5);
+        }
+        .p1-err {
+            color: #f87171;
+            font-size: .85rem;
+            text-align: center;
+            margin-top: 12px;
+            display: none;
+            font-weight: 600;
+        }
+
+        /* ══════════════════════════════════════════
+           PHASE 2 — AI 채팅
+        ══════════════════════════════════════════ */
+        .chat-hero {
+            padding: 40px 0 28px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .ai-avatar-lg {
+            width: 54px; height: 54px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #4facfe, #a29bfe);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            flex-shrink: 0;
+            box-shadow: 0 6px 20px rgba(79,172,254,.35);
+        }
+        .ai-hero-text {}
+        .ai-hero-name {
+            font-size: 1.1rem;
+            font-weight: 900;
+            color: #0f172a;
+            letter-spacing: -.01em;
+        }
+        .ai-hero-status {
+            font-size: .8rem;
+            font-weight: 700;
+            color: #4facfe;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 3px;
+        }
+        .ai-hero-status::before {
+            content: '';
+            width: 7px; height: 7px;
+            background: #4facfe;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        /* 메시지 영역 — 스크롤 없이 자연스럽게 쌓이도록 */
+        .chat-msgs {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding-bottom: 8px;
+        }
+
+        .msg-row { display: flex; gap: 10px; align-items: flex-end; }
+        .msg-row.me { flex-direction: row-reverse; }
+
+        .av {
+            width: 34px; height: 34px;
+            border-radius: 12px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .9rem;
+            font-weight: 900;
+        }
+        .av.ai   { background: linear-gradient(135deg, #4facfe, #a29bfe); }
+        .av.user { background: #1e293b; color: #fff; font-size: .75rem; border-radius: 10px; }
+
+        .bubble {
+            max-width: 78%;
+            padding: 13px 17px;
+            border-radius: 18px;
+            font-size: .93rem;
+            line-height: 1.7;
+            font-weight: 500;
+            animation: bubbleIn .22s ease;
+            word-break: keep-all;
+        }
+        .bubble.ai {
+            background: #fff;
+            color: #1e293b;
+            border-bottom-left-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        }
+        .bubble.user {
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            color: #fff;
+            border-bottom-right-radius: 5px;
+            box-shadow: 0 4px 14px rgba(79,172,254,.3);
+        }
+
+        /* 너짓 */
+        .nudge {
+            margin-left: 44px;
+            padding: 14px 18px;
+            background: linear-gradient(135deg, #0f172a, #1e3a5f);
+            border-radius: 16px;
+            border-bottom-left-radius: 5px;
+            font-size: .87rem;
+            line-height: 1.7;
+            color: #94a3b8;
+            font-weight: 600;
+            animation: bubbleIn .3s ease;
+        }
+        .nudge strong { color: #60a5fa; }
+
+        /* 위젯 트리거 */
+        .widget-trigger-row { margin-left: 44px; }
+        .widget-trigger-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            padding: 12px 20px;
+            border-radius: 14px;
+            border: 1.5px solid #bfdbfe;
+            background: linear-gradient(135deg, #eff6ff, #eef2ff);
+            color: #3b82f6;
+            font-size: .88rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all .15s;
+            font-family: inherit;
+            animation: bubbleIn .3s ease;
+            box-shadow: 0 2px 8px rgba(79,172,254,.1);
+        }
+        .widget-trigger-btn:hover {
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            border-color: transparent;
+            color: #fff;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(79,172,254,.35);
+        }
+        .widget-done-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 15px;
+            border-radius: 99px;
+            background: #f0fdf4;
+            color: #16a34a;
+            border: 1px solid #bbf7d0;
+            font-size: .82rem;
+            font-weight: 800;
+            animation: chipPop .2s ease;
+        }
+
+        /* 칩 */
+        .chips-row { margin-left: 44px; display: flex; flex-wrap: wrap; gap: 7px; }
+        .chip {
+            background: #f0fdf4;
+            color: #16a34a;
+            border: 1px solid #bbf7d0;
+            padding: 5px 13px;
+            border-radius: 99px;
+            font-size: .8rem;
+            font-weight: 800;
+            animation: chipPop .2s ease;
+        }
+
+        /* 추론 배지 */
+        .infer-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            color: #d97706;
+            padding: 5px 13px;
+            border-radius: 99px;
+            font-size: .78rem;
+            font-weight: 800;
+            animation: chipPop .2s ease;
+            margin-left: 44px;
+        }
+
+        /* 타이핑 */
+        .typing-row { display: flex; gap: 10px; align-items: flex-end; }
+        .typing-bub {
+            padding: 13px 17px;
+            background: #fff;
+            border-radius: 18px;
+            border-bottom-left-radius: 5px;
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,.06);
+        }
+        .typing-bub span {
+            width: 7px; height: 7px;
+            background: #cbd5e1;
+            border-radius: 50%;
+            animation: dot 1.2s infinite;
+        }
+        .typing-bub span:nth-child(2) { animation-delay: .2s; }
+        .typing-bub span:nth-child(3) { animation-delay: .4s; }
+
+        /* 퀵 답변 */
+        .qr-row { margin-left: 44px; display: flex; flex-wrap: wrap; gap: 8px; }
+        .qr-btn {
+            background: #fff;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 99px;
+            padding: 9px 17px;
+            font-size: .87rem;
+            font-weight: 700;
+            color: #475569;
+            cursor: pointer;
+            transition: all .15s;
+            font-family: inherit;
+            box-shadow: 0 1px 4px rgba(0,0,0,.05);
+        }
+        .qr-btn:hover {
+            border-color: #4facfe;
+            color: #4facfe;
+            background: #f0f8ff;
+            transform: translateY(-1px);
+        }
+
+        /* 가중치 바 */
+        .weight-box {
+            margin-left: 44px;
+            background: #fff;
+            border-radius: 16px;
+            padding: 18px 20px;
+            animation: bubbleIn .3s ease;
+            box-shadow: 0 2px 12px rgba(0,0,0,.07);
+        }
+        .weight-title { font-size: .78rem; font-weight: 800; color: #94a3b8; margin-bottom: 12px; letter-spacing: .05em; }
+        .w-row  { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+        .w-lbl  { font-size: .8rem; font-weight: 700; color: #64748b; width: 44px; flex-shrink: 0; }
+        .w-track{ flex: 1; height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
+        .w-fill { height: 100%; background: linear-gradient(90deg, #4facfe, #a29bfe); border-radius: 99px; transition: width .7s cubic-bezier(.34,1.56,.64,1); }
+        .w-val  { font-size: .8rem; font-weight: 800; color: #4facfe; width: 36px; text-align: right; flex-shrink: 0; }
+
+        /* 채팅 입력창 — 하단 고정 */
+        .chat-input-sticky {
+            position: sticky;
+            bottom: 0;
+            background: linear-gradient(to top, #f5f7fb 80%, transparent);
+            padding: 16px 0 24px;
+            margin-top: 20px;
+        }
+        .chat-input-inner {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: #fff;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 18px;
+            padding: 6px 6px 6px 18px;
+            box-shadow: 0 4px 20px rgba(0,0,0,.08);
+            transition: border-color .2s, box-shadow .2s;
+        }
+        .chat-input-inner:focus-within {
+            border-color: #4facfe;
+            box-shadow: 0 4px 24px rgba(79,172,254,.2);
+        }
+        #chat-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            background: transparent;
+            font-size: .93rem;
+            font-family: inherit;
+            color: #1e293b;
+            font-weight: 500;
+        }
+        #chat-input::placeholder { color: #aab4c4; }
+        #chat-input:disabled { color: #aab4c4; }
+        .send-btn {
+            width: 42px; height: 42px;
+            border-radius: 13px;
+            border: none;
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            color: #fff;
+            font-size: .95rem;
+            cursor: pointer;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 10px rgba(79,172,254,.4);
+            transition: all .15s;
+        }
+        .send-btn:hover    { transform: scale(1.06); box-shadow: 0 5px 16px rgba(79,172,254,.5); }
+        .send-btn:disabled { background: #e2e8f0; box-shadow: none; cursor: not-allowed; transform: none; }
+
+        /* 채팅 하단 버튼 */
+        .chat-nav {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .btn-back {
+            padding: 12px 20px;
+            border-radius: 12px;
+            border: 1.5px solid #e2e8f0;
+            background: #fff;
+            color: #64748b;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .9rem;
+            transition: all .15s;
+        }
+        .btn-back:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn-finish {
+            flex: 1;
+            padding: 14px;
+            border-radius: 14px;
+            border: none;
+            background: linear-gradient(135deg, #4facfe, #a29bfe);
+            color: #fff;
+            font-weight: 800;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .95rem;
+            box-shadow: 0 4px 16px rgba(79,172,254,.4);
+            transition: all .2s;
+        }
+        .btn-finish:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(79,172,254,.5); }
+
+        /* ══════════════════════════════════════════
+           로딩
+        ══════════════════════════════════════════ */
+        #loading-screen {
+            display: none;
+            text-align: center;
+            padding: 80px 24px;
+        }
+        #loading-screen h2 {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin-top: 24px;
+        }
+        #loading-screen p {
+            font-size: .9rem;
+            color: #94a3b8;
+            margin-top: 8px;
+        }
+
+        /* ══════════════════════════════════════════
+           모달 (바텀시트)
+        ══════════════════════════════════════════ */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,.6);
+            z-index: 9000;
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+            animation: overlayIn .2s ease;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.open { display: flex; }
+
+        .modal-sheet {
+            background: #fff;
+            width: 100%;
+            max-width: 600px;
+            border-radius: 28px 28px 0 0;
+            max-height: 92vh;
+            overflow-y: auto;
+            animation: modalIn .32s cubic-bezier(.34,1.1,.64,1);
+            scrollbar-width: thin;
+        }
+        .modal-handle {
+            width: 44px; height: 4px;
+            background: #e2e8f0;
+            border-radius: 99px;
+            margin: 16px auto 0;
+            cursor: pointer;
+        }
+        .modal-inner { padding: 22px 28px 36px; }
+        .modal-title {
+            font-size: 1.15rem;
+            font-weight: 900;
+            color: #0f172a;
+            margin-bottom: 22px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: -.01em;
+        }
+        .modal-close {
+            margin-left: auto;
+            background: #f1f5f9;
+            border: none;
+            width: 30px; height: 30px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .15s;
+        }
+        .modal-close:hover { background: #e2e8f0; color: #475569; }
+
+        /* 지도 모달 */
+        .map-search-row { display: flex; gap: 8px; margin-bottom: 14px; }
+        .map-search-row input {
+            flex: 1; padding: 12px 16px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: .9rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color .15s;
+        }
+        .map-search-row input:focus { border-color: #4facfe; }
+        .map-search-row button {
+            padding: 12px 18px;
+            border-radius: 12px;
+            border: none;
+            background: #4facfe;
+            color: #fff;
+            font-weight: 800;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .88rem;
+        }
+        #modal-map-wrap {
+            width: 100%; height: 260px;
+            border-radius: 14px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #e2e8f0;
+        }
+        #modal-map { width: 100%; height: 100%; }
+        .map-pin {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -100%);
+            z-index: 10; pointer-events: none; font-size: 30px;
+        }
+        .addr-display {
+            background: #f0f8ff;
+            padding: 11px 15px;
+            border-radius: 10px;
+            font-weight: 700;
+            color: #2563eb;
+            margin: 12px 0;
+            border: 1px dashed #93c5fd;
+            font-size: .88rem;
+            text-align: center;
+        }
+
+        /* 예산 모달 */
+        .budget-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+        .b-tab {
+            flex: 1; padding: 11px;
+            text-align: center;
+            border-radius: 12px;
+            border: 1.5px solid #e2e8f0;
+            background: #f8fafc;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            color: #64748b;
+            font-size: .9rem;
+            transition: all .15s;
+        }
+        .b-tab.on {
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(79,172,254,.3);
+        }
+        .b-inputs { display: none; }
+        .b-inputs.show { display: block; }
+        .b-lbl { font-size: .83rem; font-weight: 700; color: #94a3b8; margin-bottom: 8px; letter-spacing: .03em; }
+        .b-range { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+        .b-range input {
+            flex: 1; padding: 11px 14px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 11px;
+            font-size: .9rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color .15s;
+        }
+        .b-range input:focus { border-color: #4facfe; }
+        .b-sep { font-weight: 800; color: #cbd5e1; font-size: 1.1rem; }
+
+        /* 상세조건 모달 */
+        .d-section { margin-bottom: 20px; }
+        .d-section-title {
+            font-size: .87rem;
+            font-weight: 800;
+            color: #475569;
+            margin-bottom: 10px;
+            letter-spacing: -.01em;
+        }
+        .d-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+        .d-pill {
+            padding: 9px 16px;
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            background: #fff;
+            font-size: .85rem;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
+            transition: all .12s;
+            font-family: inherit;
+        }
+        .d-pill:hover { border-color: #93c5fd; color: #4facfe; background: #f0f8ff; }
+        .d-pill.on {
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 3px 10px rgba(79,172,254,.3);
+        }
+
+        /* 공통 모달 버튼 */
+        .modal-btns { display: flex; gap: 10px; margin-top: 8px; }
+        .modal-ok {
+            flex: 2; padding: 14px;
+            border-radius: 13px;
+            border: none;
+            background: linear-gradient(135deg, #4facfe, #60a5fa);
+            color: #fff;
+            font-weight: 800;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .92rem;
+            box-shadow: 0 4px 14px rgba(79,172,254,.35);
+            transition: all .15s;
+        }
+        .modal-ok:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(79,172,254,.45); }
+        .modal-ok:disabled { background: #e2e8f0; box-shadow: none; cursor: not-allowed; transform: none; }
+        .modal-skip {
+            flex: 1; padding: 14px;
+            border-radius: 13px;
+            border: 1.5px solid #e2e8f0;
+            background: #f8fafc;
+            color: #94a3b8;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .92rem;
+            transition: all .15s;
+        }
+        .modal-skip:hover { background: #f1f5f9; color: #64748b; }
+
+        /* 반응형 */
+        @media (max-width: 500px) {
+            .survey-page { padding: 0 16px 80px; }
+            .p1-hero { padding: 36px 0 28px; }
+            .modal-inner { padding: 18px 18px 28px; }
+        }
     </style>
 </head>
 <body>
 
+<!-- 네비게이션 -->
 <div class="navbar">
     <div class="nav-left">
         <a href="{{ url_for('main.index') }}" class="main-home-link">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 28px; height: 28px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                 <circle cx="12" cy="13" r="2" fill="#4facfe" stroke="#4facfe"></circle>
             </svg>
@@ -58,15 +806,11 @@
     <div class="nav-links">
     {% if session.get('user_id') %}
         <span class="welcome-text">
-            
             {% if session.get('profile_img_name') %}
-                <img src="{{ url_for('static', filename='profile_pics/' + session.get('profile_img_name')) }}" 
-                     class="nav-profile-img" alt="프로필">
+                <img src="{{ url_for('static', filename='profile_pics/' + session.get('profile_img_name')) }}" class="nav-profile-img" alt="프로필">
             {% else %}
-                <img src="{{ url_for('static', filename='profile_pics/default.png') }}" 
-                     class="nav-profile-img" alt="기본프로필">
+                <img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="nav-profile-img" alt="기본프로필">
             {% endif %}
-            
             <strong>{{ session.get('nickname') }}</strong>님
         </span>
         <a href="{{ url_for('mypage.mypage') }}">마이페이지</a>
@@ -75,421 +819,645 @@
         <a href="{{ url_for('auth.login') }}">로그인</a>
         <a href="{{ url_for('auth.register') }}">회원가입</a>
     {% endif %}
-</div>
+    </div>
 </div>
 
-<div class="survey-wrapper">
-    <div class="progress-area">
-        <div class="gauge-background"><div id="gauge-fill" style="width: 0%;"></div></div>
-        <div class="progress-text" id="status-txt">분석 준비 중...</div>
+<!-- 프로그레스 바 -->
+<div class="survey-progress">
+    <div class="progress-track">
+        <div class="progress-fill" id="gauge-fill"></div>
+    </div>
+    <div class="progress-label" id="status-txt">분석 준비 중</div>
+</div>
+
+<!-- 메인 컨텐츠 -->
+<div class="survey-page">
+
+    <!-- ★ PHASE 1: 퀵 설문 -->
+    <div id="phase-1" class="phase active">
+
+        <div class="p1-hero">
+            <div class="p1-hero-badge">✦ ZIPMATCH AI 분석</div>
+            <h1>나에게 딱 맞는<br><em>서울 집</em>을 찾아드릴게요</h1>
+            <p>5가지 질문이면 충분해요.<br>AI가 라이프스타일을 분석해 최적의 동네를 추천합니다.</p>
+        </div>
+
+        <div class="q-group">
+            <div class="q-meta">
+                <div class="q-num">01</div>
+                <div class="q-label">연령대가 어떻게 되세요?</div>
+            </div>
+            <div class="pill-row" id="grp-age">
+                <button class="pill" onclick="pick(this,'grp-age')">20대 이하</button>
+                <button class="pill" onclick="pick(this,'grp-age')">20대</button>
+                <button class="pill" onclick="pick(this,'grp-age')">30대</button>
+                <button class="pill" onclick="pick(this,'grp-age')">40대 이상</button>
+            </div>
+        </div>
+
+        <div class="q-group">
+            <div class="q-meta">
+                <div class="q-num">02</div>
+                <div class="q-label">직업은 무엇인가요?</div>
+            </div>
+            <div class="pill-row" id="grp-job">
+                <button class="pill" onclick="pick(this,'grp-job')">학생</button>
+                <button class="pill" onclick="pick(this,'grp-job')">직장인</button>
+                <button class="pill" onclick="pick(this,'grp-job')">재택근무·프리랜서</button>
+                <button class="pill" onclick="pick(this,'grp-job')">취준생</button>
+                <button class="pill" onclick="pick(this,'grp-job')">기타</button>
+            </div>
+        </div>
+
+        <div class="q-group">
+            <div class="q-meta">
+                <div class="q-num">03</div>
+                <div class="q-label">결혼 여부를 알려주세요</div>
+            </div>
+            <div class="pill-row" id="grp-married">
+                <button class="pill" onclick="pick(this,'grp-married')">미혼</button>
+                <button class="pill" onclick="pick(this,'grp-married')">신혼</button>
+                <button class="pill" onclick="pick(this,'grp-married')">기혼</button>
+            </div>
+        </div>
+
+        <div class="q-group">
+            <div class="q-meta">
+                <div class="q-num">04</div>
+                <div class="q-label">자녀가 있으신가요?</div>
+            </div>
+            <div class="pill-row" id="grp-children">
+                <button class="pill" onclick="pick(this,'grp-children')">있음</button>
+                <button class="pill" onclick="pick(this,'grp-children')">없음</button>
+            </div>
+        </div>
+
+        <div class="q-group">
+            <div class="q-meta">
+                <div class="q-num">05</div>
+                <div class="q-label">현재 가구 구성은요?</div>
+            </div>
+            <div class="pill-row" id="grp-hh">
+                <button class="pill" onclick="pick(this,'grp-hh')">1인 가구</button>
+                <button class="pill" onclick="pick(this,'grp-hh')">2인 이상 가구</button>
+            </div>
+        </div>
+
+        <div class="p1-footer">
+            <button class="p1-submit" onclick="submitPhase1()">AI 분석 시작하기 →</button>
+            <div class="p1-err" id="p1-err">모든 항목을 선택해주세요! ⚠️</div>
+        </div>
     </div>
 
-    <form id="survey-form">
-        <div class="q-card active" id="step-0">
-            <h2>🏠 학교나 직장 근처의 매물을 찾으시나요?</h2>
-            <p class="hint-text">원하는 동네 근처를 지정할 수 있습니다!</p>
-            
-            <div class="options-group" id="location-ask-group">
-                <button type="button" class="opt-btn" onclick="showMapSection(true)">네, 지역을 정하고 싶어요</button>
-                <button type="button" class="opt-btn" onclick="skipStep0()">아니요, 상관없어요</button>
-            </div>
+    <!-- ★ PHASE 2: AI 채팅 -->
+    <div id="phase-2" class="phase">
 
-            <div id="map-selection-area" style="display:none; margin-top:20px; width:100%;">
-                <div class="search-box">
-                    <input type="text" id="map-search-input" placeholder="정확한 주소를 입력하세요!" onkeypress="handleSearchKey(event)">
-                    <button type="button" class="confirm-btn" onclick="searchAddress()" style="width: 80px;">검색</button>
-                </div>
-                <div id="map-container">
-                    <div id="map"></div>
-                    <div class="map-center-pin">📍</div>
-                </div>
-                <div id="current-addr" class="address-display">지도를 움직여 원하는 곳에 핀을 맞춰주세요.</div>
-                <input type="hidden" id="pref_location">
-                <div class="next-btn-container" style="display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 15px;">
-                    <button type="button" class="confirm-btn" onclick="confirmLocation()">이 위치 근처로 찾기</button>
-                    <button type="button" class="skip-btn" onclick="location.reload()">취소하고 돌아가기</button>
-                </div>
+        <div class="chat-hero">
+            <div class="ai-avatar-lg">🏠</div>
+            <div class="ai-hero-text">
+                <div class="ai-hero-name">ZIPMATCH 큐레이터</div>
+                <div class="ai-hero-status">라이프스타일 분석 중</div>
             </div>
         </div>
 
-        <div class="q-card" id="step-1">
-            <h2>💰 희망하는 예산 범위를 알려주세요.</h2>
-            <p class="hint-text">입력하지 않아도 추천을 받을 수 있어요</p>
-            <div class="options-group">
-                <button type="button" class="opt-btn" onclick="selectContract('monthly', this)">월세</button>
-                <button type="button" class="opt-btn" onclick="selectContract('jeonse', this)">전세</button>
-            </div>
+        <div class="chat-msgs" id="chat-msgs"></div>
 
-            <div id="monthly-area" class="conditional-area">
-                <p class="sub-q">보증금 범위 (만원)</p>
-                <div class="range-group">
-                    <input type="number" id="m_dep_min" class="input-field" placeholder="최소" min="0" oninput="preventNegative(this)">
-                    <span class="range-sep">~</span>
-                    <input type="number" id="m_dep_max" class="input-field" placeholder="최대" min="0" oninput="preventNegative(this)">
-                </div>
-                <p class="sub-q" style="margin-top:15px;">월세 범위 (만원)</p>
-                <div class="range-group">
-                    <input type="number" id="m_rent_min" class="input-field" placeholder="최소" min="0" oninput="preventNegative(this)">
-                    <span class="range-sep">~</span>
-                    <input type="number" id="m_rent_max" class="input-field" placeholder="최대" min="0" oninput="preventNegative(this)">
-                </div>
+        <div class="chat-input-sticky">
+            <div class="chat-input-inner">
+                <input type="text" id="chat-input" placeholder="자유롭게 입력하거나 버튼을 눌러주세요"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
+                <button class="send-btn" id="send-btn" onclick="sendChat()">➤</button>
             </div>
-
-            <div id="jeonse-area" class="conditional-area">
-                <p class="sub-q">전세금 범위 (만원)</p>
-                <div class="range-group">
-                    <input type="number" id="j_dep_min" class="input-field" placeholder="최소" min="0" oninput="preventNegative(this)">
-                    <span class="range-sep">~</span>
-                    <input type="number" id="j_dep_max" class="input-field" placeholder="최대" min="0" oninput="preventNegative(this)">
-                </div>
+            <div class="chat-nav" id="nav-row">
+                <button class="btn-back" onclick="backToP1()">← 처음으로</button>
             </div>
-
-            <div class="next-btn-container" style="display: flex; gap: 10px;">
-                <button type="button" class="back-btn" onclick="prevStep(0)" style="flex: 1;">이전</button>
-                <button type="button" class="confirm-btn" onclick="validateStep1()" style="flex: 2;">다음 단계로</button>
+            <div class="chat-nav" id="finish-row" style="display:none">
+                <button class="btn-back" onclick="backToP1()">← 처음으로</button>
+                <button class="btn-finish" onclick="finishChat()">✨ 분석 시작</button>
             </div>
         </div>
+    </div>
 
-        <div class="q-card" id="step-2">
-            <h2>🏠 상세 희망 조건을 선택해주세요.</h2>
-            
-            <div class="detail-q-group">
-                <p class="sub-q">가능한 건물 연식 (중복 가능)</p>
-                <div class="options-group multi-group" data-key="building_age">
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, true)">신축 (5년 이하)</button>
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, true)">준신축 (5~10년)</button>
-                    <button type="button" class="opt-btn" style="grid-column: span 2;" onclick="toggleBtn(this, true)">구축 (10년 이상)</button>
-                </div>
-            </div>
-
-            <div class="detail-q-group">
-                <p class="sub-q">희망하는 방 개수 (중복 가능)</p>
-                <div class="options-group multi-group" data-key="room_count">
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, true)">1개</button>
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, true)">2개</button>
-                    <button type="button" class="opt-btn" style="grid-column: span 2;" onclick="toggleBtn(this, true)">3개 이상</button>
-                </div>
-            </div>
-
-            <div class="detail-q-group">
-                <p class="sub-q">반지하 혹은 옥탑방도 괜찮으신가요?</p>
-                <div class="options-group single-group" data-key="special_room">
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, false)">네, 상관없어요</button>
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, false)">아니요, 피하고 싶어요</button>
-                </div>
-            </div>
-
-            <div class="detail-q-group">
-                <p class="sub-q">주차장이 필요하신가요?</p>
-                <div class="options-group single-group" data-key="parking">
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, false)">네, 필요해요</button>
-                    <button type="button" class="opt-btn" onclick="toggleBtn(this, false)">아니요, 상관없어요</button>
-                </div>
-            </div>
-
-            <p class="limit-info detail-empty" style="color: orange; display: none; margin-top: 10px; text-align: center;">모든 항목을 1개 이상 선택해주세요! ⚠️</p>
-
-            <div class="next-btn-container" style="display: flex; gap: 10px;">
-                <button type="button" class="back-btn" onclick="prevStep(1)" style="flex: 1;">이전</button>
-                <button type="button" class="confirm-btn" onclick="validateStep2()" style="flex: 2;">다음 질문으로</button>
-            </div>
-        </div>
-
-        {% for q in questions %}
-        {% set step_num = 3 + loop.index0 %}
-        <div class="q-card" id="step-{{ step_num }}">
-            <h2>🌳 {{ q.title }}</h2>
-            <p style="color:#888; font-size:0.85rem; margin-bottom:15px;">
-                {{ '최대 3개까지 선택 가능합니다.' if q.multiple else '하나만 선택해주세요.' }}
-            </p>
-            <div class="options-group">
-                {% for option in q.options %}
-                <button type="button" class="opt-btn weight-opt" 
-                        data-categories='{{ option.categories | tojson | safe }}'
-                        onclick="handleWeightClick(this, {{ q.max_choice if q.multiple else 1 }}, {{ 'true' if q.multiple else 'false' }})">
-                    {{ option.text }}
-                </button>
-                {% endfor %}
-            </div>
-            <p class="limit-info weight-empty" style="color: orange; display: none; margin-top: 10px; text-align: center;">항목을 선택해주세요! ⚠️</p>
-            
-            <div class="next-btn-container" style="display: flex; gap: 10px;">
-                <button type="button" class="back-btn" onclick="prevStep({{ 2 if loop.first else step_num - 1 }})" style="flex: 1;">이전</button>
-                {% if loop.last %}
-                <button type="button" class="confirm-btn" onclick="submitFinalSurvey()" style="flex: 2;">분석 완료</button>
-                {% else %}
-                <button type="button" class="confirm-btn" onclick="validateAndNext({{ step_num + 1 }})" style="flex: 2;">다음 질문으로</button>
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </form>
-
+    <!-- 로딩 -->
     <div id="loading-screen">
         <div class="loader"></div>
-        <h2 style="margin-top:20px;">AI가 맞춤 매물을 분석 중입니다...</h2>
-        <p>{{ session.get('nickname', '사용자') }}님께 가장 잘 어울리는 동네를 찾고 있어요.</p>
+        <h2>AI가 맞춤 매물을 분석 중입니다...</h2>
+        <p>{{ session.get('nickname','사용자') }}님께 가장 잘 어울리는 동네를 찾고 있어요.</p>
+    </div>
+
+</div><!-- /survey-page -->
+
+<!-- ══════════════ 모달 1: 지도 ══════════════ -->
+<div class="modal-overlay" id="modal-map">
+    <div class="modal-sheet">
+        <div class="modal-handle" onclick="closeModal('modal-map')"></div>
+        <div class="modal-inner">
+            <div class="modal-title">
+                📍 학교·직장 근처 설정
+                <button class="modal-close" onclick="closeModal('modal-map')">✕</button>
+            </div>
+            <div class="map-search-row">
+                <input type="text" id="map-search" placeholder="주소를 입력하세요" onkeypress="if(event.key==='Enter')doSearch()">
+                <button onclick="doSearch()">검색</button>
+            </div>
+            <div id="modal-map-wrap">
+                <div id="modal-map"></div>
+                <div class="map-pin">📍</div>
+            </div>
+            <div id="addr-display" class="addr-display">지도를 움직여 원하는 곳에 핀을 맞춰주세요.</div>
+            <div class="modal-btns">
+                <button class="modal-ok" id="map-ok-btn" onclick="confirmMap()" disabled>이 위치로 설정</button>
+                <button class="modal-skip" onclick="skipMap()">건너뛰기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════ 모달 2: 예산 ══════════════ -->
+<div class="modal-overlay" id="modal-budget">
+    <div class="modal-sheet">
+        <div class="modal-handle" onclick="closeModal('modal-budget')"></div>
+        <div class="modal-inner">
+            <div class="modal-title">
+                💰 예산 범위 설정
+                <button class="modal-close" onclick="closeModal('modal-budget')">✕</button>
+            </div>
+            <div class="budget-tabs">
+                <button class="b-tab on" id="bt-monthly" onclick="switchBudget('monthly')">월세</button>
+                <button class="b-tab"    id="bt-jeonse"  onclick="switchBudget('jeonse')">전세</button>
+            </div>
+            <div class="b-inputs show" id="bi-monthly">
+                <div class="b-lbl">보증금 (만원)</div>
+                <div class="b-range">
+                    <input type="number" id="bm_dep_min" placeholder="최소" min="0">
+                    <span class="b-sep">~</span>
+                    <input type="number" id="bm_dep_max" placeholder="최대" min="0">
+                </div>
+                <div class="b-lbl">월세 (만원)</div>
+                <div class="b-range">
+                    <input type="number" id="bm_rent_min" placeholder="최소" min="0">
+                    <span class="b-sep">~</span>
+                    <input type="number" id="bm_rent_max" placeholder="최대" min="0">
+                </div>
+            </div>
+            <div class="b-inputs" id="bi-jeonse">
+                <div class="b-lbl">전세금 (만원)</div>
+                <div class="b-range">
+                    <input type="number" id="bj_dep_min" placeholder="최소" min="0">
+                    <span class="b-sep">~</span>
+                    <input type="number" id="bj_dep_max" placeholder="최대" min="0">
+                </div>
+            </div>
+            <div class="modal-btns" style="margin-top:8px">
+                <button class="modal-ok" onclick="confirmBudget()">예산 설정 완료</button>
+                <button class="modal-skip" onclick="skipBudget()">나중에</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════ 모달 3: 상세조건 ══════════════ -->
+<div class="modal-overlay" id="modal-detail">
+    <div class="modal-sheet">
+        <div class="modal-handle" onclick="closeModal('modal-detail')"></div>
+        <div class="modal-inner">
+            <div class="modal-title">
+                🏠 상세 희망 조건
+                <button class="modal-close" onclick="closeModal('modal-detail')">✕</button>
+            </div>
+            <div id="conditional-questions"></div>
+            <div class="d-section">
+                <div class="d-section-title">건물 연식 (중복 선택 가능)</div>
+                <div class="d-pills" id="d-age">
+                    <button class="d-pill" onclick="tpill(this,'d-age',true)">신축 (5년 이하)</button>
+                    <button class="d-pill" onclick="tpill(this,'d-age',true)">준신축 (5~10년)</button>
+                    <button class="d-pill" onclick="tpill(this,'d-age',true)">구축 (10년 이상)</button>
+                </div>
+            </div>
+            <div class="d-section">
+                <div class="d-section-title">희망 방 개수 (중복 선택 가능)</div>
+                <div class="d-pills" id="d-room">
+                    <button class="d-pill" onclick="tpill(this,'d-room',true)">1개</button>
+                    <button class="d-pill" onclick="tpill(this,'d-room',true)">2개</button>
+                    <button class="d-pill" onclick="tpill(this,'d-room',true)">3개 이상</button>
+                </div>
+            </div>
+            <div class="d-section">
+                <div class="d-section-title">반지하·옥탑방도 괜찮으신가요?</div>
+                <div class="d-pills" id="d-special">
+                    <button class="d-pill" onclick="tpill(this,'d-special',false)">네, 상관없어요</button>
+                    <button class="d-pill" onclick="tpill(this,'d-special',false)">아니요, 피하고 싶어요</button>
+                </div>
+            </div>
+            <div class="d-section" id="d-parking-section">
+                <div class="d-section-title">주차장이 필요하신가요?</div>
+                <div class="d-pills" id="d-parking">
+                    <button class="d-pill" onclick="tpill(this,'d-parking',false)">네, 필요해요</button>
+                    <button class="d-pill" onclick="tpill(this,'d-parking',false)">아니요, 상관없어요</button>
+                </div>
+            </div>
+            <div class="modal-btns" style="margin-top:8px">
+                <button class="modal-ok" onclick="confirmDetail()">조건 설정 완료</button>
+                <button class="modal-skip" onclick="skipDetail()">건너뛰기</button>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-    let map;
-    let currentIdx = 0;
-    const totalSteps = 3 + {{ questions|length }}; 
+// ── 전역 상태 ──────────────────────────────────────────────
+let naverMap = null;
+const SR = {
+    phase1: {},
+    location:'', location_type:'', target_coords:{lat:0,lng:0},
+    contract_type:'',
+    budget:{min_dep:null,max_dep:null,min_rent:null,max_rent:null},
+    building_age:[], room_count:[], special_room:'', parking:'',
+    extra_conditions:{},
+    custom_weights:null, category_log:[]
+};
 
-    const surveyResults = { 
-        location: "", 
-        target_coords: { lat: 0, lng: 0 },
-        contract_type: "", 
-        budget: { min_dep: null, max_dep: null, min_rent: null, max_rent: null },
-        building_type: [],
-        building_age: [],
-        room_count: [],
-        special_room: "",
-        parking: "",
-        category_log: [] 
-    };
+let chatHistory=[], finalWeights=null, turnCount=0, isLoading=false;
+let mapShown=false, budgetShown=false, detailShown=false;
+let currentBudgetTab='monthly';
 
-    history.replaceState({idx: 0}, "Step 0");
+let condLogic = {
+    needMap:false, roomStructure:false,
+    schoolDist:false, workRoom:false, emphParking:false
+};
 
-    function showMapSection(wantMap) {
-        if (wantMap) {
-            document.getElementById('map-selection-area').style.display = 'block';
-            document.getElementById('location-ask-group').style.display = 'none';
-            setTimeout(() => {
-                if (!map) initMap();
-                else naver.maps.Event.trigger(map, 'resize');
-            }, 200);
-        }
-    }
+const W_LABELS = { traffic:'교통', convenience:'편의', green:'녹지', play:'놀이', health:'건강', living:'생활', safety:'안전' };
 
-    function initMap() {
-        const mapElement = document.getElementById('map');
-        if (!mapElement) return;
-        map = new naver.maps.Map(mapElement, {
-            center: new naver.maps.LatLng(37.5665, 126.9780),
-            zoom: 16
-        });
-        naver.maps.Event.addListener(map, 'idle', function() {
-            updateAddress(map.getCenter());
-        });
-    }
+// ── Phase 1 ────────────────────────────────────────────────
+function pick(btn, grpId) {
+    document.getElementById(grpId).querySelectorAll('.pill').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+}
 
-    function updateAddress(latlng) {
-        if (!naver.maps.Service.reverseGeocode) return;
-        naver.maps.Service.reverseGeocode({
-            coords: latlng,
-            orders: [naver.maps.Service.OrderType.ADDR, naver.maps.Service.OrderType.ROAD_ADDR].join(',')
-        }, function(status, response) {
-            if (status === naver.maps.Service.Status.OK && response.v2.results.length > 0) {
-                const res = response.v2.results[0];
-                const area1 = res.region.area1.name; // 시/도
-                const addr = area1 + " " + res.region.area2.name + " " + res.region.area3.name + (res.land && res.land.number1 ? " " + res.land.number1 : "");
+function submitPhase1() {
+    const pairs = [['grp-age','age'],['grp-job','job'],['grp-married','married'],['grp-children','children'],['grp-hh','household']];
+    let ok = true;
+    pairs.forEach(([g,k]) => {
+        const sel = document.getElementById(g).querySelector('.pill.on');
+        if (!sel) ok=false; else SR.phase1[k]=sel.textContent.trim();
+    });
+    if (!ok) { document.getElementById('p1-err').style.display='block'; return; }
+    document.getElementById('p1-err').style.display='none';
+    calcCondLogic();
+    startPhase2();
+}
 
-                const isSeoul = area1.includes("서울");
-                const addrEl = document.getElementById('current-addr');
-                const confirmBtn = document.querySelector('.next-btn-container .confirm-btn');
+function calcCondLogic() {
+    const {job,household,children}=SR.phase1;
+    condLogic.needMap      = ['학생','직장인'].includes(job);
+    condLogic.roomStructure= job==='학생' && household==='2인 이상 가구';
+    condLogic.schoolDist   = job==='직장인' && children==='있음';
+    condLogic.workRoom     = job==='재택근무·프리랜서' && household==='2인 이상 가구';
+}
 
-                if (isSeoul) {
-                    addrEl.style.background = '#f0f7ff';
-                    addrEl.style.borderColor = '#007bff';
-                    addrEl.style.color = '#007bff';
-                    addrEl.innerText = "📍 현재 위치: " + addr;
-                    document.getElementById('pref_location').value = addr;
-                    surveyResults.location = addr;
-                    surveyResults.target_coords = { lat: latlng.lat(), lng: latlng.lng() };
-                    if (confirmBtn) {
-                        confirmBtn.disabled = false;
-                        confirmBtn.style.opacity = '1';
-                        confirmBtn.style.cursor = 'pointer';
-                    }
-                } else {
-                    addrEl.style.background = '#fff0f0';
-                    addrEl.style.borderColor = '#ff4d4f';
-                    addrEl.style.color = '#ff4d4f';
-                    addrEl.innerText = "⚠️ 서울 외 지역입니다. 서울 안에서 선택해주세요.";
-                    document.getElementById('pref_location').value = '';
-                    surveyResults.location = '';
-                    surveyResults.target_coords = { lat: 0, lng: 0 };
-                    if (confirmBtn) {
-                        confirmBtn.disabled = true;
-                        confirmBtn.style.opacity = '0.4';
-                        confirmBtn.style.cursor = 'not-allowed';
-                    }
-                }
-            }
-        });
-    }
+function startPhase2() {
+    document.getElementById('phase-1').classList.remove('active');
+    document.getElementById('phase-2').classList.add('active');
+    setProgress(20);
+    window.scrollTo(0,0);
+    initChat();
+}
 
-    function searchAddress() {
-        const query = document.getElementById('map-search-input').value;
-        if (!query) return alert("검색어를 입력하세요.");
-        naver.maps.Service.geocode({ query: query }, function(status, response) {
-            if (status !== naver.maps.Service.Status.OK || response.v2.addresses.length === 0) return alert("결과가 없습니다.");
-            const item = response.v2.addresses[0];
-            // 서울 외 검색 시 지도 이동 자체를 막음
-            if (!item.roadAddress.includes("서울") && !item.jibunAddress.includes("서울")) {
-                const addrEl = document.getElementById('current-addr');
-                addrEl.style.background = '#fff0f0';
-                addrEl.style.borderColor = '#ff4d4f';
-                addrEl.style.color = '#ff4d4f';
-                addrEl.innerText = "⚠️ 서울 외 지역입니다. 서울 안에서 선택해주세요.";
-                return;
-            }
-            const newPoint = new naver.maps.LatLng(item.y, item.x);
-            map.setCenter(newPoint);
-            updateAddress(newPoint);
-        });
-    }
+function backToP1() {
+    document.getElementById('phase-2').classList.remove('active');
+    document.getElementById('phase-1').classList.add('active');
+    setProgress(0);
+    chatHistory=[]; finalWeights=null; turnCount=0; isLoading=false;
+    mapShown=false; budgetShown=false; detailShown=false;
+    document.getElementById('chat-msgs').innerHTML='';
+    document.getElementById('finish-row').style.display='none';
+    document.getElementById('nav-row').style.display='flex';
+    document.getElementById('chat-input').value='';
+    window.scrollTo(0,0);
+}
 
-    function handleSearchKey(e) { if (e.key === 'Enter') searchAddress(); }
-    
-    function confirmLocation() { 
-        if(!document.getElementById('pref_location').value) return alert("위치를 선택해주세요."); 
-        if(!surveyResults.location.includes("서울")) {
-            alert("서울 안의 위치만 선택할 수 있어요.");
-            return;
-        }
-        surveyResults.location_type = "point";
-        nextStep(1); 
-    }
-    
-    function skipStep0() { surveyResults.location = "상관없음"; nextStep(1); }
+function setProgress(pct) {
+    document.getElementById('gauge-fill').style.width=pct+'%';
+    document.getElementById('status-txt').innerText=pct>0?pct+'% 분석 중':'분석 준비 중';
+}
 
-    function updateUI() {
-        const percent = Math.round((currentIdx / totalSteps) * 100);
-        const fill = document.getElementById('gauge-fill');
-        if(fill) fill.style.width = percent + '%';
-        document.getElementById('status-txt').innerText = `${percent}% 분석 중...`;
-    }
+// ── 모달 ───────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-    function nextStep(idx) {
-        document.getElementById(`step-${currentIdx}`).classList.remove('active');
-        currentIdx = idx;
-        document.getElementById(`step-${currentIdx}`).classList.add('active');
-        history.pushState({idx: idx}, `Step ${idx}`);
-        updateUI();
-        window.scrollTo(0, 0);
-    }
-
-    function prevStep(idx) {
-        document.getElementById(`step-${currentIdx}`).classList.remove('active');
-        currentIdx = idx;
-        document.getElementById(`step-${currentIdx}`).classList.add('active');
-        updateUI();
-        window.scrollTo(0, 0);
-    }
-
-    function selectContract(type, btn) {
-        surveyResults.contract_type = type;
-        btn.parentElement.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        document.getElementById('monthly-area').style.display = (type === 'monthly') ? 'block' : 'none';
-        document.getElementById('jeonse-area').style.display = (type === 'jeonse') ? 'block' : 'none';
-    }
-
-    // 질문자님 핵심 로직: 예산을 기입하지 않아도 강제로 0으로 잡히지 않도록 Null 처리
-    function validateStep1() {
-        if (!surveyResults.contract_type) { alert("계약 형태를 선택해주세요!"); return; }
-        
-        if (surveyResults.contract_type === 'monthly') {
-            surveyResults.budget.min_dep = document.getElementById('m_dep_min').value;
-            surveyResults.budget.max_dep = document.getElementById('m_dep_max').value;
-            surveyResults.budget.min_rent = document.getElementById('m_rent_min').value;
-            surveyResults.budget.max_rent = document.getElementById('m_rent_max').value;
+// ── 지도 모달 ──────────────────────────────────────────────
+function openMapModal() {
+    openModal('modal-map');
+    setTimeout(()=>{
+        if (!naverMap) {
+            naverMap=new naver.maps.Map(document.getElementById('modal-map'),{center:new naver.maps.LatLng(37.5665,126.9780),zoom:15});
+            naver.maps.Event.addListener(naverMap,'idle',()=>reverseGeo(naverMap.getCenter()));
         } else {
-            surveyResults.budget.min_dep = document.getElementById('j_dep_min').value;
-            surveyResults.budget.max_dep = document.getElementById('j_dep_max').value;
+            naver.maps.Event.trigger(naverMap,'resize');
         }
-        nextStep(2); 
-    }
-
-    function toggleBtn(btn, isMulti) {
-        const group = btn.closest('.options-group');
-        if (!isMulti) {
-            group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
-        }
-        btn.classList.toggle('selected');
-        document.querySelector('.detail-empty').style.display = 'none';
-    }
-
-    function validateStep2() {
-        const step2 = document.getElementById('step-2');
-        const groups = step2.querySelectorAll('.options-group');
-        let isValid = true;
-
-        groups.forEach(group => {
-            if (group.querySelectorAll('.selected').length === 0) {
-                isValid = false;
-            }
-        });
-
-        if (!isValid) {
-            step2.querySelector('.detail-empty').style.display = 'block';
-            return;
-        }
-
-        surveyResults.building_age = Array.from(step2.querySelector('[data-key="building_age"]').querySelectorAll('.selected')).map(b => b.innerText);
-        surveyResults.room_count = Array.from(step2.querySelector('[data-key="room_count"]').querySelectorAll('.selected')).map(b => b.innerText);
-        surveyResults.special_room = step2.querySelector('[data-key="special_room"] .selected').innerText;
-        surveyResults.parking = step2.querySelector('[data-key="parking"] .selected').innerText;
-
-        nextStep(3); 
-    }
-
-    function handleWeightClick(btn, max, isMultiple) {
-        const card = btn.closest('.q-card');
-        if (!isMultiple) {
-            card.querySelectorAll('.weight-opt').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
+    },250);
+}
+function reverseGeo(latlng) {
+    if(!naver.maps.Service.reverseGeocode) return;
+    naver.maps.Service.reverseGeocode({coords:latlng,orders:[naver.maps.Service.OrderType.ADDR,naver.maps.Service.OrderType.ROAD_ADDR].join(',')},(status,res)=>{
+        if(status!==naver.maps.Service.Status.OK||!res.v2.results.length) return;
+        const r=res.v2.results[0];
+        const area1=r.region.area1.name;
+        const addr=area1+' '+r.region.area2.name+' '+r.region.area3.name+(r.land?.number1?' '+r.land.number1:'');
+        const isSeoul=area1.includes('서울');
+        const el=document.getElementById('addr-display'),btn=document.getElementById('map-ok-btn');
+        if(isSeoul){
+            el.style.cssText='background:#eff6ff;border-color:#93c5fd;color:#2563eb;';
+            el.innerText='📍 현재 위치: '+addr;
+            SR.location=addr; SR.target_coords={lat:latlng.lat(),lng:latlng.lng()};
+            btn.disabled=false; btn.style.opacity='1';
         } else {
-            const selectedCount = card.querySelectorAll('.weight-opt.selected').length;
-            if (!btn.classList.contains('selected') && selectedCount >= max) return alert(`최대 ${max}개 선택 가능합니다.`);
-            btn.classList.toggle('selected');
+            el.style.cssText='background:#fff1f2;border-color:#fca5a5;color:#dc2626;';
+            el.innerText='⚠️ 서울 외 지역입니다. 서울 안에서 선택해주세요.';
+            SR.location=''; btn.disabled=true; btn.style.opacity='0.4';
         }
-        card.querySelector('.weight-empty').style.display = 'none';
-    }
+    });
+}
+function doSearch() {
+    const q=document.getElementById('map-search').value;
+    if(!q) return;
+    naver.maps.Service.geocode({query:q},(status,res)=>{
+        if(status!==naver.maps.Service.Status.OK||!res.v2.addresses.length) return alert('결과가 없습니다.');
+        const item=res.v2.addresses[0];
+        const pt=new naver.maps.LatLng(item.y,item.x);
+        naverMap.setCenter(pt); reverseGeo(pt);
+    });
+}
+function confirmMap() {
+    if(!SR.location) return;
+    SR.location_type='point';
+    closeModal('modal-map');
+    markWidgetDone('map-trigger','📍 위치: '+SR.location);
+    handleInput('📍 위치 설정 완료: '+SR.location);
+}
+function skipMap() {
+    SR.location='상관없음';
+    closeModal('modal-map');
+    markWidgetDone('map-trigger','위치: 상관없음');
+    handleInput('위치는 상관없어요');
+}
 
-    function validateAndNext(nextIdx) {
-        const currentCard = document.getElementById(`step-${currentIdx}`);
-        if (currentCard.querySelectorAll('.weight-opt.selected').length === 0) {
-            currentCard.querySelector('.weight-empty').style.display = 'block';
-            return;
-        }
-        nextStep(nextIdx);
+// ── 예산 모달 ──────────────────────────────────────────────
+function openBudgetModal() { openModal('modal-budget'); }
+function switchBudget(type) {
+    currentBudgetTab=type;
+    document.getElementById('bi-monthly').classList.toggle('show',type==='monthly');
+    document.getElementById('bi-jeonse').classList.toggle('show',type==='jeonse');
+    document.getElementById('bt-monthly').classList.toggle('on',type==='monthly');
+    document.getElementById('bt-jeonse').classList.toggle('on',type==='jeonse');
+}
+function confirmBudget() {
+    SR.contract_type=currentBudgetTab;
+    if(currentBudgetTab==='monthly'){
+        SR.budget.min_dep=document.getElementById('bm_dep_min').value;
+        SR.budget.max_dep=document.getElementById('bm_dep_max').value;
+        SR.budget.min_rent=document.getElementById('bm_rent_min').value;
+        SR.budget.max_rent=document.getElementById('bm_rent_max').value;
+    } else {
+        SR.budget.min_dep=document.getElementById('bj_dep_min').value;
+        SR.budget.max_dep=document.getElementById('bj_dep_max').value;
     }
+    closeModal('modal-budget');
+    const t=currentBudgetTab==='monthly'?'월세':'전세';
+    markWidgetDone('budget-trigger',t+' 예산 설정 완료');
+    handleInput(t+'로 예산 설정했어요');
+}
+function skipBudget() {
+    closeModal('modal-budget');
+    markWidgetDone('budget-trigger','예산: 유동적');
+    handleInput('예산은 유동적이에요');
+}
 
-    function submitFinalSurvey() {
-        const currentCard = document.getElementById(`step-${currentIdx}`);
-        if (currentCard.querySelectorAll('.weight-opt.selected').length === 0) {
-            currentCard.querySelector('.weight-empty').style.display = 'block';
-            return;
-        }
-        document.getElementById('survey-form').style.display = 'none';
-        document.getElementById('loading-screen').style.display = 'block';
-        surveyResults.category_log = [];
-        document.querySelectorAll('.weight-opt.selected').forEach(b => {
-            const cats = JSON.parse(b.getAttribute('data-categories'));
-            cats.forEach(c => surveyResults.category_log.push(c));
+// ── 상세조건 모달 ──────────────────────────────────────────
+function openDetailModal() {
+    injectConditionalQuestions();
+    openModal('modal-detail');
+}
+function injectConditionalQuestions() {
+    const el=document.getElementById('conditional-questions');
+    el.innerHTML='';
+    const items=[];
+    if(condLogic.roomStructure) items.push({id:'d-cond-room-eq',title:'🏠 두 방의 크기가 비슷해야 하나요? (룸메이트/형제 거주)',opts:['네, 균등한 방 크기 선호','아니요, 크기 달라도 괜찮아요'],multi:false});
+    if(condLogic.schoolDist)   items.push({id:'d-cond-school',title:'🏫 단지 내 어린이집·초등학교 거리가 중요한가요?',opts:['매우 중요해요','어느 정도 중요해요','크게 중요하지 않아요'],multi:false});
+    if(condLogic.workRoom)     items.push({id:'d-cond-workroom',title:'💻 업무를 위한 독립된 방이 추가로 필요한가요?',opts:['네, 꼭 필요해요','공용 공간에서 일해도 괜찮아요'],multi:false});
+    if(!items.length) return;
+    items.forEach(item=>{
+        const sec=document.createElement('div'); sec.className='d-section';
+        sec.innerHTML=`<div class="d-section-title" style="color:#d97706;">${item.title}</div><div class="d-pills" id="${item.id}">${item.opts.map(o=>`<button class="d-pill" onclick="tpill(this,'${item.id}',${item.multi})">${o}</button>`).join('')}</div>`;
+        el.appendChild(sec);
+    });
+}
+function tpill(btn,grpId,multi) {
+    const g=document.getElementById(grpId);
+    if(!multi) g.querySelectorAll('.d-pill').forEach(b=>b.classList.remove('on'));
+    btn.classList.toggle('on');
+}
+function confirmDetail() {
+    SR.building_age=[...document.querySelectorAll('#d-age .d-pill.on')].map(b=>b.textContent.trim());
+    SR.room_count  =[...document.querySelectorAll('#d-room .d-pill.on')].map(b=>b.textContent.trim());
+    const sp=document.querySelector('#d-special .d-pill.on');
+    const pk=document.querySelector('#d-parking .d-pill.on');
+    SR.special_room=sp?sp.textContent.trim():'';
+    SR.parking=pk?pk.textContent.trim():'';
+    if(condLogic.roomStructure){ const v=document.querySelector('#d-cond-room-eq .d-pill.on'); if(v) SR.extra_conditions.room_equal=v.textContent.trim(); }
+    if(condLogic.schoolDist)   { const v=document.querySelector('#d-cond-school .d-pill.on');  if(v) SR.extra_conditions.school_dist=v.textContent.trim(); }
+    if(condLogic.workRoom)     { const v=document.querySelector('#d-cond-workroom .d-pill.on');if(v) SR.extra_conditions.work_room=v.textContent.trim(); }
+    closeModal('modal-detail');
+    markWidgetDone('detail-trigger','상세 조건 설정 완료');
+    handleInput('상세 조건 설정 완료했어요');
+}
+function skipDetail() {
+    closeModal('modal-detail');
+    markWidgetDone('detail-trigger','상세 조건: 건너뜀');
+    handleInput('상세 조건은 상관없어요');
+}
+
+// ── 채팅 UI 헬퍼 ───────────────────────────────────────────
+const $msgs=()=>document.getElementById('chat-msgs');
+
+function appendAI(text) {
+    const r=document.createElement('div'); r.className='msg-row';
+    r.innerHTML=`<div class="av ai">🏠</div><div class="bubble ai">${text}</div>`;
+    $msgs().appendChild(r); scrollToBottom();
+}
+function appendUser(text) {
+    const nick="{{ session.get('nickname','나') }}";
+    const r=document.createElement('div'); r.className='msg-row me';
+    r.innerHTML=`<div class="av user">${nick.charAt(0)}</div><div class="bubble user">${text}</div>`;
+    $msgs().appendChild(r); scrollToBottom();
+}
+function appendNudge(html) {
+    if(!html) return;
+    const el=document.createElement('div'); el.className='nudge'; el.innerHTML=html;
+    $msgs().appendChild(el); scrollToBottom();
+}
+function appendQR(replies) {
+    if(!replies?.length) return;
+    const row=document.createElement('div'); row.className='qr-row'; row.id='qr-row';
+    replies.forEach(r=>{
+        const b=document.createElement('button'); b.className='qr-btn'; b.textContent=r;
+        b.onclick=()=>{ document.getElementById('qr-row')?.remove(); handleInput(r); };
+        row.appendChild(b);
+    });
+    $msgs().appendChild(row); scrollToBottom();
+}
+function appendChips(chips) {
+    if(!chips?.length) return;
+    const row=document.createElement('div'); row.className='chips-row';
+    chips.forEach(c=>{ const d=document.createElement('div'); d.className='chip'; d.textContent=c; row.appendChild(d); });
+    $msgs().appendChild(row); scrollToBottom();
+}
+function appendWidgetTrigger(id, icon, label, onClickFn) {
+    const row=document.createElement('div'); row.className='widget-trigger-row'; row.id=id;
+    const btn=document.createElement('button'); btn.className='widget-trigger-btn';
+    btn.innerHTML=`<span>${icon}</span>${label}`;
+    btn.onclick=onClickFn;
+    row.appendChild(btn);
+    $msgs().appendChild(row); scrollToBottom();
+}
+function markWidgetDone(triggerId, doneText) {
+    const row=document.getElementById(triggerId);
+    if(!row) return;
+    row.innerHTML=`<div class="widget-done-chip">✅ ${doneText}</div>`;
+}
+function appendInferBadge(text) {
+    const el=document.createElement('div'); el.className='infer-badge';
+    el.textContent='🔍 '+text;
+    $msgs().appendChild(el); scrollToBottom();
+}
+function appendWeights(weights) {
+    const keys=['traffic','convenience','green','play','health','living','safety'];
+    const max=Math.max(...keys.map(k=>weights[k]||0));
+    const box=document.createElement('div'); box.className='weight-box';
+    box.innerHTML=`<div class="weight-title">📊 분석된 가중치</div>`+
+        keys.map(k=>`<div class="w-row"><div class="w-lbl">${W_LABELS[k]}</div><div class="w-track"><div class="w-fill" style="width:${(weights[k]/max*100).toFixed(1)}%"></div></div><div class="w-val">${weights[k]}%</div></div>`).join('');
+    $msgs().appendChild(box); scrollToBottom();
+}
+function showTyping() {
+    const r=document.createElement('div'); r.className='typing-row'; r.id='typing';
+    r.innerHTML=`<div class="av ai">🏠</div><div class="typing-bub"><span></span><span></span><span></span></div>`;
+    $msgs().appendChild(r); scrollToBottom();
+}
+function removeTyping() { document.getElementById('typing')?.remove(); }
+function scrollToBottom() { window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}); }
+
+function setInput(enabled) {
+    document.getElementById('chat-input').disabled=!enabled;
+    document.getElementById('send-btn').disabled=!enabled;
+    isLoading=!enabled;
+}
+
+// ── 채팅 초기화 ────────────────────────────────────────────
+function initChat() {
+    chatHistory=[]; finalWeights=null; turnCount=0; isLoading=false;
+    mapShown=false; budgetShown=false; detailShown=false;
+    document.getElementById('chat-msgs').innerHTML='';
+    document.getElementById('finish-row').style.display='none';
+    document.getElementById('nav-row').style.display='flex';
+    document.getElementById('chat-input').value='';
+    callAI(null);
+}
+
+// ── API 호출 (/survey/chat 서버 경유) ──────────────────────
+async function callAI(userMsg) {
+    setInput(false);
+    document.getElementById('qr-row')?.remove();
+
+    if(userMsg!==null) { chatHistory.push({role:'user',content:userMsg}); turnCount++; }
+
+    showTyping();
+    try {
+        const res=await fetch('/survey/chat',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({messages:chatHistory,phase1:SR.phase1})
         });
-        fetch('/survey/save', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(surveyResults)
-        })
-        .then(res => res.json())
-        .then(data => {
-            // survey_id를 받아 결과 페이지로 즉시 이동 (AI 생성은 result 페이지에서 처리)
-            if (data.status === "success") {
-                location.href = `/survey/result/by_id/${data.survey_id}`;
-            } else {
-                alert(data.message);
-                location.reload();
-            }
-        });
-    }
+        const resp=await res.json();
+        removeTyping();
 
-    function preventNegative(input) { if (input.value < 0) input.value = 0; }
+        if(resp.status!=='success') {
+            appendAI('잠시 오류가 발생했어요. 다시 시도해주세요.');
+            setInput(true); return;
+        }
+
+        const parsed=resp.data, raw=resp.raw;
+        chatHistory.push({role:'assistant',content:raw});
+        appendAI(parsed.message);
+        if(parsed.nudge) appendNudge(parsed.nudge);
+
+        // 조건부 배지 (첫 응답 시)
+        if(turnCount<=1) {
+            if(condLogic.roomStructure) appendInferBadge('룸메이트/형제 동거 → 방 구조 확인 예정');
+            if(condLogic.schoolDist)   appendInferBadge('자녀 있음 → 학군·어린이집 거리 확인 예정');
+            if(condLogic.workRoom)     appendInferBadge('재택+동거 → 독립 업무공간 확인 예정');
+        }
+
+        // 자차 감지
+        if(parsed.emphParking) {
+            condLogic.emphParking=true;
+            const pSec=document.getElementById('d-parking-section');
+            if(pSec) { pSec.querySelector('.d-section-title').style.color='#d97706'; pSec.querySelector('.d-section-title').textContent='🚗 주차장이 필요하신가요? (자차 이용 중)'; }
+        }
+
+        // 위젯 트리거
+        if(parsed.show_map_widget    && !mapShown)    { mapShown=true;    appendWidgetTrigger('map-trigger','📍','학교·직장 근처 위치 설정하기',openMapModal); }
+        if(parsed.show_budget_widget && !budgetShown) { budgetShown=true; appendWidgetTrigger('budget-trigger','💰','예산 범위 설정하기',openBudgetModal); }
+        if(parsed.show_detail_widget && !detailShown) { detailShown=true; appendWidgetTrigger('detail-trigger','🏠','상세 희망 조건 설정하기',openDetailModal); }
+
+        // 진행률
+        setProgress(Math.round(Math.min(20+(turnCount/7)*75,95)));
+
+        if(parsed.type==='done') {
+            finalWeights=parsed.weights;
+            appendChips(parsed.chips||[]);
+            appendWeights(parsed.weights);
+            document.getElementById('finish-row').style.display='flex';
+            document.getElementById('nav-row').style.display='none';
+            setInput(false);
+            setProgress(100);
+        } else {
+            appendQR(parsed.quick_replies);
+            setInput(true);
+            if(turnCount>=7) setTimeout(()=>handleInput('지금까지 내용으로 최종 분석해주세요.'),400);
+        }
+    } catch {
+        removeTyping();
+        appendAI('네트워크 오류가 발생했어요. 잠시 후 다시 시도해주세요.');
+        setInput(true);
+    }
+}
+
+function handleInput(text) { if(!text?.trim()||isLoading) return; appendUser(text); callAI(text); }
+function sendChat() {
+    const inp=document.getElementById('chat-input');
+    const t=inp.value.trim(); if(!t||isLoading) return;
+    inp.value=''; handleInput(t);
+}
+
+// ── 최종 제출 ──────────────────────────────────────────────
+function finishChat() {
+    if(!finalWeights) return;
+    const keys=['traffic','convenience','green','play','health','living','safety'];
+    const total=keys.reduce((s,k)=>s+(finalWeights[k]||0),0);
+    const norm={}; keys.forEach(k=>{ norm[k]=Math.round((finalWeights[k]||0)/total*1000)/10; });
+    SR.custom_weights=norm; SR.category_log=[];
+
+    document.getElementById('phase-2').classList.remove('active');
+    document.getElementById('loading-screen').style.display='block';
+
+    fetch('/survey/save',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(SR)
+    }).then(r=>r.json()).then(data=>{
+        if(data.status==='success') location.href=`/survey/result/by_id/${data.survey_id}`;
+        else { alert(data.message); location.reload(); }
+    });
+}
 </script>
 </body>
 </html>
